@@ -1042,13 +1042,13 @@ class CircleSelector(BaseSelector):
         self.selection = selection
 
     def _move_graphic(self, delta: np.ndarray):
-
         # new selection positions
         centerx_new = self.selection[0] + delta[0]
         centery_new = self.selection[1] + delta[1]
-        print(self._pygfx_event.pick_info["world_object"])
-        print(self._pygfx_event.pick_info["world_object"] == self.vertices[1])
         if self._resizable:
+            # This needs to be updated to get the object that was first clicked...
+            # use self._move_info.source... That needs to be updated to
+            # handle the case where the source is the fill object
             if self._pygfx_event.pick_info["world_object"] == self.vertices[0]:
                 if delta[0] < 0 or delta[1] < 0:
                     radius_change = -np.sqrt(delta[0] ** 2 + delta[1] ** 2)
@@ -1084,8 +1084,6 @@ class CircleSelector(BaseSelector):
                 self._selection.set_selection(self, values)
                 self.selection = values
                 return
-
-
 
 
         # move entire selector if source is fill
@@ -1124,16 +1122,16 @@ class CircleSelector(BaseSelector):
         if "Image" in source.__class__.__name__:
             xx = np.arange(-radius, radius, dtype=int)
             yy = np.arange(-radius, radius, dtype=int)
-            inds = np.reshape(np.meshgrid(xx, yy), (2, -1))
-            rad = np.linalg.norm(inds, axis=0)
-            inds = inds[:, rad <= radius]
+            inds = np.reshape(np.meshgrid(xx, yy), (-1, 2))
+            rad = np.linalg.norm(inds, axis=1)
+            inds = inds[rad <= radius]
             inds[0] += int(x_center)
             inds[1] += int(y_center)
-            g_ixs = np.where(
-                (inds[:, 0] >= - source.offset[0])
-                & (inds[:, 0] <= source.offset[0])
-                & (inds[:, 1] >= source.offset[1])
-                & (inds[:, 1] <= source.offset[1])
-            )[0]
+
+            limits = source.data.value.shape
+            g_ixs = np.where((inds[:, 0] >= 0)
+                & (inds[:, 0] <= limits[0])
+                & (inds[:, 1] >= 0)
+                & (inds[:, 1] <= limits[1]))
             inds = inds[g_ixs]
             return inds

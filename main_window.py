@@ -5,6 +5,7 @@ from hyperspy.roi import CircleROI
 from PyQt6 import QtWidgets, QtCore
 from PyQt6.QtGui import QAction
 from PyQt6.QtWebEngineWidgets import QWebEngineView
+from PyQt6.QtCore import Qt
 
 import sys
 import fastplotlib as fpl
@@ -17,6 +18,7 @@ from functools import partial
 import time
 import numpy as np
 
+from camera_control import CameraControlDock
 
 def fast_index_virtual(arr, indexes, method="sum", reverse=True):
     ranges = np.vstack([np.min(indexes, axis=0), np.max(indexes, axis=0)]).T
@@ -102,6 +104,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.plot_update_event_worker = PlotUpdateWorker(self)
         self.plot_update_event_worker.moveToThread(self.plot_update_event_thread)
 
+        camera_control_dock = CameraControlDock(self)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, camera_control_dock)
+
     def start_plot_update_loop(self):
         print("Starting Plot Update Loop")
         self.plot_update_event_thread.started.connect(self.plot_update_event_worker.run)
@@ -130,6 +135,39 @@ class MainWindow(QtWidgets.QMainWindow):
         for n in names:
             action = example_data.addAction(n)
             action.triggered.connect(partial(self.load_example_data, n))
+
+        # Add View Menu
+        view_menu = menubar.addMenu("View")
+        toggle_dask_dashboard = QAction("Toggle Dask Dashboard", self)
+        toggle_dask_dashboard.setChecked(True)
+        toggle_dask_dashboard.triggered.connect(self.toggle_dask_dashboard_visibility)
+        view_menu.addAction(toggle_dask_dashboard)
+
+        toggle_camera_control = QAction("Toggle Camera Control", self)
+        toggle_camera_control.setChecked(True)
+        toggle_camera_control.triggered.connect(self.toggle_camera_control_visibility)
+        view_menu.addAction(toggle_camera_control)
+
+    def toggle_dask_dashboard_visibility(self):
+        """
+        Toggle the visibility of the Dask dashboard.
+        """
+        for dock in self.findChildren(QtWidgets.QDockWidget):
+            if dock.windowTitle() == "Dask Dashboard":
+                if dock.isVisible():
+                    dock.hide()
+                else:
+                    dock.show()
+
+    def toggle_camera_control_visibility(self):
+        """
+        Toggle the visibility of the Camera Control dock.
+        """
+        for dock in self.findChildren(CameraControlDock):
+            if dock.isVisible():
+                dock.hide()
+            else:
+                dock.show()
 
     def open_file(self):
         file_dialog = QtWidgets.QFileDialog()
@@ -638,7 +676,7 @@ class Plot(QtWidgets.QMdiSubWindow):
                 current_img = np.sum(self.hyper_signal.signal.data[tuple_inds], axis=0)
             self.data = current_img
             name = "Sig Plot"
-        else:
+        else:  # go back to the top? up one level?
             key_hypersignal = self.hyper_signal.nav_sig
             while key_hypersignal.nav_sig is not None:
                 key_hypersignal = key_hypersignal.nav_sig
@@ -806,7 +844,8 @@ class Plot(QtWidgets.QMdiSubWindow):
             down_step = self.hyper_signal.parent_signal is not None
             if self.ndim == 1:
                 action = selector_menu.addAction("Add Line Selector")
-                partial_add_selector = partial(self.add_selector_and_new_plot, type="LineSelector")
+                partial_add_selector = partial(self.add_selector_and_new_plot, type="LineSelector",
+                                               down_step=down_step)
                 action.triggered.connect(partial_add_selector)
             else:  # 2D
                 action = selector_menu.addAction("Add Rectangle Selector and New Plot")
@@ -861,7 +900,6 @@ class Plot(QtWidgets.QMdiSubWindow):
                 parent_signal = parent_signal.parent_signal
         signal = parent_signal.signal
         result = fast_index_virtual(signal.data, indexes, reverse=reverse)
-        print(result)
         if self.hyper_signal.signal._lazy:
             lazy_arr = result  # make non blocking
             print(f"{time.time()}:Computing Virtual Image")
@@ -934,6 +972,7 @@ if __name__ == '__main__':
     app.setApplicationName("SpyDe")  # Set the application name
 
     main_window = MainWindow()
+
     main_window.setWindowTitle("SpyDe")  # Set the window title
     main_window.show()
 

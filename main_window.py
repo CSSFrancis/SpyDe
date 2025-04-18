@@ -4,19 +4,20 @@ import pyxem.data
 from hyperspy.roi import CircleROI
 from PyQt6 import QtWidgets, QtCore
 from PyQt6.QtGui import QAction
-from PyQt6.QtWebEngineWidgets import QWebEngineView
-from PyQt6.QtCore import Qt
+#from PyQt6.QtWebEngineWidgets import QWebEngineView
+from PyQt6.QtCore import Qt, QMetaObject
 
 import sys
 import fastplotlib as fpl
 import hyperspy.api as hs
 import dask.array as da
-from dask.distributed import Client, Future
+from dask.distributed import Client, Future, LocalCluster
 from external.rectangle_selector import RectangleSelector, CircleSelector
 from fastplotlib import LinearSelector
 from functools import partial
 import time
 import numpy as np
+import os
 
 from camera_control import CameraControlDock
 
@@ -38,30 +39,7 @@ def fast_index_virtual(arr, indexes, method="sum", reverse=True):
             arr[slice_ranges] = np.nan  # upcasting and maybe much slower??
             return arr.nanmean(axis=tuple(1,np.arange(len(mask.shape)+1, dtype=int)*-1))
 
-class PlotUpdateWorker(QtCore.QObject):
-    finished = QtCore.pyqtSignal()
 
-    def __init__(self, main_window):
-        super().__init__()
-        self.main_window = main_window
-
-    def run(self):
-        """Long-running task."""
-        print("Running Plot Update Loop")
-        waiting_plots = True
-        while waiting_plots:
-            waiting_plots = False
-            for p in self.main_window.plot_subwindows:
-                if isinstance(p.data, Future) and p.data.done():
-                    print("Updating Plot")
-                    p.data = p.data.result()
-                    p.update()
-                elif isinstance(p.data, Future):
-                    print("Waiting for computation")
-                    waiting_plots = True
-                    time.sleep(0.1)
-        print("All plots updated")
-        self.finished.emit()
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -71,8 +49,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.client = Client()  # Start a local Dask client (this should be settable eventually)
-        print(self.client.dashboard_link)
+        cpu_count = os.cpu_count()
+        threads = (cpu_count//4) -1
+        cluster = LocalCluster(n_workers=threads, threads_per_worker=4)
+        self.client = Client(cluster)  # Start a local Dask client (this should be settable eventually)
+        print(self.client.dashboard_link) # Why is this slow???
         self.setWindowTitle("Hyperspy Plot")
         # get screen size and set window size to 3/4 of the screen size
         # get screen size and set subwindow size to 1/4 of the screen size
@@ -92,7 +73,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.plot_subwindows = []
 
         self.mdi_area.subWindowActivated.connect(self.on_subwindow_activated)
-        self.add_dask_dashboard()
+        #self.add_dask_dashboard()
         self.create_menu()
 
         self.signal_tree = None
@@ -100,21 +81,26 @@ class MainWindow(QtWidgets.QMainWindow):
         self.s_list_widget = None
         self.add_plot_control_widget()
 
-        self.plot_update_event_thread = QtCore.QThread()
-        self.plot_update_event_worker = PlotUpdateWorker(self)
-        self.plot_update_event_worker.moveToThread(self.plot_update_event_thread)
+
+        self.timer  = QtCore.QTimer()
+        self.timer.setInterval(10) # Every 10ms we will check to update the plots??
+        self.timer.timeout.connect(self.update_plots_loop)
+        self.timer.start()
 
         camera_control_dock = CameraControlDock(self)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, camera_control_dock)
 
-    def start_plot_update_loop(self):
-        print("Starting Plot Update Loop")
-        self.plot_update_event_thread.started.connect(self.plot_update_event_worker.run)
-        self.plot_update_event_worker.finished.connect(self.plot_update_event_thread.quit)
-        #self.plot_update_event_worker.finished.connect(self.plot_update_event_worker.deleteLater)
-        #self.plot_update_event_thread.finished.connect(self.plot_update_event_thread.deleteLater)
-        # Step 6: Start the thread
-        self.plot_update_event_thread.start()
+    def update_plots_loop(self):
+        """This is a simple loop to check if the plots need to be updated. Currently this
+        is running on the main event loop but it could be moved to a separate thread if it
+        starts to slow down the GUI.
+
+        """
+        for p in self.plot_subwindows:
+            if isinstance(p.data, Future) and p.data.done():
+                print("Updating Plot")
+                p.data = p.data.result()
+                p.update()
 
     def create_menu(self):
         menubar = self.menuBar()
@@ -172,11 +158,16 @@ class MainWindow(QtWidgets.QMainWindow):
     def open_file(self):
         file_dialog = QtWidgets.QFileDialog()
         file_dialog.setFileMode(QtWidgets.QFileDialog.FileMode.ExistingFiles)
-        file_dialog.setNameFilter("Hyperspy Files (*.hspy)")
+        file_dialog.setNameFilter("Hyperspy Files (*.hspy), mrc Files (*.mrc)")
         if file_dialog.exec():
             file_paths = file_dialog.selectedFiles()
             for file_path in file_paths:
-                signal = hs.load(file_path, lazy=True)
+                kwargs = {"lazy": True}
+                if file_path.endswith(".mrc"):
+                    kwargs["chunks"] = ("auto", "auto", -1, -1)
+                    kwargs["distributed"] = True
+
+                signal = hs.load(file_path, **kwargs)
                 hyper_signal = HyperSignal(signal, main_window=self, client=self.client)
                 plot = Plot(hyper_signal, is_signal=False, key_navigator=True)
                 plot.main_window = self
@@ -267,12 +258,13 @@ class MainWindow(QtWidgets.QMainWindow):
             kx_size = kx_input.value()
             ky_size = ky_input.value()
             size = (t_size, x_size, y_size, kx_size, ky_size)
-            size = tuple([s for s in size if s>0])
+            size = tuple([s for s in size if s>1])
 
             if random_radio.isChecked():
                 chunks = ("auto",) * (len(size) - 2) + (-1, -1)
                 data = da.random.random(size, chunks=chunks)
                 s = hs.signals.Signal2D(data).as_lazy()
+                s.cache_pad = 2
             else:  # multiphase_radio.isChecked():
                 s = pyxem.data.fe_multi_phase_grains(size=x_size,
                                                      recip_pixels=kx_size,
@@ -280,6 +272,7 @@ class MainWindow(QtWidgets.QMainWindow):
                                                                                    "auto",
                                                                                    -1,
                                                                                    -1))
+                s.cache_pad = 2
 
             self.add_signal(s)
 
@@ -344,7 +337,6 @@ class MainWindow(QtWidgets.QMainWindow):
         """
         webview = QWebEngineView()
         task_stream = self.client.dashboard_link.split("status")[0] + "individual-task-stream"
-        print(task_stream)
         webview.setUrl(QtCore.QUrl(task_stream))
         dock_widget = QtWidgets.QDockWidget("Dask Dashboard", self)
         dock_widget.setWidget(webview)
@@ -405,7 +397,9 @@ class HyperSignal:
     A class to manage the plotting of hyperspy signals. This class manages the
     different plots associated with a hyperspy signal.
 
-    Because of the 1st class nature of lazy signals the navigation signal won't be "live"
+    Because of the 1st class nature of lazy signals there are limits to how fast this class can
+    be.  Hardware optimization is very, very important to get the most out of this class.  That being
+    said dask task-scheduling is always going to be somewhat of a bottleneck.
 
     Parameters
     ----------
@@ -612,8 +606,6 @@ class Selector:
         if self.is_live or ev is None:
             indices = self.get_selected_indices()
             for p in self.plots:  # handle redrawing plots via p.update.
-                print(self.integration_order)
-                print(p.current_indexes)
                 p.current_indexes[self.integration_order] = indices
                 p.update_plot()
 
@@ -698,9 +690,6 @@ class Plot(QtWidgets.QMdiSubWindow):
             data = np.vstack([axis, (self.data-np.min(self.data))/
                               (np.max(self.data)-np.min(self.data))*np.max(axis),  # normalize
                               np.zeros_like(self.data)]).T
-            print("datashape", data.shape)
-            print(axis)
-            print(data)
             self.fpl_image = self.fpl_fig[0, 0].add_line(data, name="signal")
             self.fpl_fig[0, 0].auto_scale()
             self.fpl_fig[0, 0].axes.visible = True
@@ -765,9 +754,9 @@ class Plot(QtWidgets.QMdiSubWindow):
             if type == "RectangleSelector":
                 kwargs["selection"] = (1, 4, 1, 4)
                 if self.is_signal:
-                    kwargs["size_limits"] = (1, 15, 1, 15)
-                else:
                     kwargs["size_limits"] = None
+                else:
+                    kwargs["size_limits"] = (1, 15, 1, 15)
             elif type == "CircleSelector":
                 kwargs["center"] = (0, 0)
                 kwargs["radius"] = 2
@@ -900,16 +889,14 @@ class Plot(QtWidgets.QMdiSubWindow):
                 parent_signal = parent_signal.parent_signal
         signal = parent_signal.signal
         result = fast_index_virtual(signal.data, indexes, reverse=reverse)
-        if self.hyper_signal.signal._lazy:
+        if isinstance(result, da.Array):
             lazy_arr = result  # make non blocking
             print(f"{time.time()}:Computing Virtual Image")
             data = self.hyper_signal.client.compute(lazy_arr)
             self.data = data
-            print(f"{time.time()}:Starting loop")
-            self.main_window.start_plot_update_loop()
         else:
             self.data = result
-        self.update()
+            self.update()
 
     def get_dense_indexes(self):
         """
@@ -939,8 +926,9 @@ class Plot(QtWidgets.QMdiSubWindow):
                 tuple_inds = tuple([indexes[:, ind]
                                     for ind in np.arange(indexes.shape[1])])
                 current_img = np.sum(self.hyper_signal.signal.data[tuple_inds], axis=0)
-            if current_img is not None:
-                self.data = current_img
+
+            self.data = current_img
+            if not isinstance(current_img, Future): # update immediately otherwise send to event loop
                 self.update()
 
     def update(self):
@@ -974,6 +962,13 @@ if __name__ == '__main__':
     main_window = MainWindow()
 
     main_window.setWindowTitle("SpyDe")  # Set the window title
-    main_window.show()
+    #window = QtWidgets.QMdiSubWindow()
+    #main_window.mdi_area.addSubWindow(window)
+    #f = fpl.Figure()
+    #window.setWidget(f.show())
 
+    #f[0,0].add_image(np.random.rand(512, 512), name="test")
+
+
+    main_window.show()
     app.exec()

@@ -104,7 +104,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         example_data = file_menu.addMenu("Load Example Data...")
 
-        names = ["mgo_nanocrystals", "small_ptychography", "zrnb_precipitate","pdcusi_insitu"]
+        names = ["mgo_nanocrystals", "small_ptychography", "zrnb_precipitate", "pdcusi_insitu"]
         for n in names:
             action = example_data.addAction(n)
             action.triggered.connect(partial(self.load_example_data, n))

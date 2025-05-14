@@ -1,9 +1,18 @@
+
+import sys
+
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QSpinBox, QRadioButton,
     QButtonGroup, QLabel, QDockWidget, QLineEdit, QSizePolicy, QSpacerItem
 )
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFont
 
+try:
+    import deapi
+    DEAPI_INSTALLED = True
+except ImportError:
+    DEAPI_INSTALLED = False
 
 def remove_all_widgets(layout):
     """Remove all widgets from a layout."""
@@ -22,6 +31,9 @@ class CameraControlWidget(QWidget):
         remove_all_widgets(self.layout)
         self.layout.update()
         layout = self.layout
+        font = QFont()
+        font.setBold(True)
+
         # Insert Camera Button
         camera_control_layout = QHBoxLayout()
 
@@ -37,6 +49,7 @@ class CameraControlWidget(QWidget):
         self.cool_camera_button.toggled.connect(self.on_cool_camera_button_toggled)
 
         resolution_label = QLabel("Repeats:")
+        resolution_label.setFont(font)
         layout.addWidget(resolution_label,  0, Qt.AlignmentFlag.AlignLeft)
         # Integer inputs
         row1 = QHBoxLayout()
@@ -46,6 +59,7 @@ class CameraControlWidget(QWidget):
         self.summed_frames_input.setValue(1)
         layout.addLayout(row1)
         resolution_label = QLabel("Scan Positions:")
+        resolution_label.setFont(font)
         layout.addWidget(resolution_label,  0, Qt.AlignmentFlag.AlignLeft)
         row2 = QHBoxLayout()
         self.scan_x_positions_input = self.create_labeled_spinbox("X:", row2)
@@ -57,6 +71,7 @@ class CameraControlWidget(QWidget):
 
         # Radio buttons for resolution
         resolution_label = QLabel("Resolution:")
+        resolution_label.setFont(font)
         layout.addWidget(resolution_label)
 
         self.resolution_group = QButtonGroup(self)
@@ -67,7 +82,9 @@ class CameraControlWidget(QWidget):
                 radio_button.setChecked(True)
             self.resolution_group.addButton(radio_button)
             resolution_layout.addWidget(radio_button)
+
         layout.addLayout(resolution_layout)
+        self.resolution_group.buttonClicked.connect(self.on_resolution_button_clicked)
 
         # Test, Acquire, and Initialize Buttons
         self.search_button = QPushButton("Search")
@@ -93,6 +110,7 @@ class CameraControlWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
 
+        self.parent = parent
         # Main layout
         self.layout = QVBoxLayout()
         self.layout.setAlignment(Qt.AlignmentFlag.AlignTop)
@@ -113,6 +131,7 @@ class CameraControlWidget(QWidget):
         starting_ip = "127.0.0.1"
         self.input_field = QLineEdit()
         self.input_field.setPlaceholderText(starting_ip)
+        self.input_field.setText(starting_ip)
         camera_connection_inputs.addWidget(self.input_field)
         camera_connection_inputs.addWidget(self.camera_connection_button)
         ip_layout.addLayout(camera_connection_inputs)
@@ -122,10 +141,34 @@ class CameraControlWidget(QWidget):
 
         self.layout.addLayout(self.camera_connection_layout)
         self.setLayout(self.layout)
+        self.de_client = None
 
 
     def on_connect_to_camera(self):
+
+        try:
+            self.de_client = deapi.Client()
+            self.de_client.connect(host=self.input_field.text())
+            if not "win" in sys.platform:
+                self.de_client.usingMmf = False
+        except Exception as e:
+            print(f"Error connecting to camera: {e}")
+            return
+
         self.initialize()
+
+    def on_resolution_button_clicked(self):
+        """
+        Slot to handle the resolution button click.
+        This method is called when a resolution radio button is clicked.
+        """
+        # Get the selected resolution
+        selected_button = self.resolution_group.checkedButton()
+        if selected_button:
+            resolution = int(selected_button.text())
+            print(f"Selected resolution: {resolution}")
+
+            self.de_client.set_adaptive_roi(size_x=resolution, size_y=resolution)
 
     def create_labeled_spinbox(self, label_text, parent_layout):
         """Helper method to create a labeled QSpinBox."""
@@ -148,22 +191,29 @@ class CameraControlWidget(QWidget):
         """Slot to handle the toggled state of the Insert Camera button."""
         if checked:
             self.insert_camera_button.setText("Retract Camera")
+            self.de_client["Camera Position Control"] = "Extend"
         else:
             self.insert_camera_button.setText("Insert Camera")
+            self.de_client["Camera Position Control"] = "Retract"
 
     def on_cool_camera_button_toggled(self, checked):
         """Slot to handle the toggled state of the Cool Camera button."""
         if checked:
             self.cool_camera_button.setText("Warm Camera")
+            self.de_client["Temperature - Control"] = "Cool Down"
+
         else:
             self.cool_camera_button.setText("Cool Camera")
+            self.de_client["Temperature - Control"] = "Warm Up"
+
 
     def on_initialize_button_clicked(self):
         """Initialize a data object. This object is initially a set of dask `Futures`.
         This creates a placeholder for the `HyperSignal` object which will be
         constructed from a set of Futures.
         """
-        pass
+        
+
 
     def on_search_button_clicked(self, checked):
         """Slot to handle the search button click."""
@@ -177,8 +227,10 @@ class CameraControlWidget(QWidget):
         # Implement the acquire functionality here
         if checked:
             self.acquire_button.setText("Stop")
+            self.de_client.start_acquisition(1)
         else:
             self.acquire_button.setText("Acquire")
+            self.de_client.stop_acquisition()
 
 
 

@@ -1,6 +1,7 @@
 import distributed
 import numpy as np
 import pyxem.data
+from bokeh.layouts import layout
 from hyperspy.roi import CircleROI
 from PyQt6 import QtWidgets, QtCore
 from PyQt6.QtGui import QAction
@@ -19,7 +20,9 @@ import time
 import numpy as np
 import os
 
-from camera_control import CameraControlDock
+from spyde.camera_control import CameraControlDock
+from spyde.misc.dialogs import DatasetSizeDialog
+
 
 def fast_index_virtual(arr, indexes, method="sum", reverse=True):
     ranges = np.vstack([np.min(indexes, axis=0), np.max(indexes, axis=0)]).T
@@ -159,12 +162,25 @@ class MainWindow(QtWidgets.QMainWindow):
         file_dialog = QtWidgets.QFileDialog()
         file_dialog.setFileMode(QtWidgets.QFileDialog.FileMode.ExistingFiles)
         file_dialog.setNameFilter("Hyperspy Files (*.hspy), mrc Files (*.mrc)")
+
         if file_dialog.exec():
             file_paths = file_dialog.selectedFiles()
             for file_path in file_paths:
                 kwargs = {"lazy": True}
                 if file_path.endswith(".mrc"):
-                    kwargs["chunks"] = ("auto", "auto", -1, -1)
+                    dialog = DatasetSizeDialog(self, filename=file_path)
+                    if dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
+                        x_size = dialog.x_input.value()
+                        y_size = dialog.y_input.value()
+                        time_size = dialog.time_input.value()
+                        kwargs["navigation_shape"] = tuple([val for val in (x_size, y_size, time_size) if val > 1])
+                        print(f"{kwargs['navigation_shape']}")
+                    else:
+                        print("Dialog cancelled")
+                        return
+                    # .mrc always have 2 signal axes.  Maybe needs changed for eels.
+                    kwargs["chunks"] = (("auto",) * len(kwargs["navigation_shape"])) + (-1, -1)
+                    print(f"{kwargs['chunks']}")
                     kwargs["distributed"] = True
 
                 signal = hs.load(file_path, **kwargs)
@@ -568,7 +584,9 @@ class Selector:
 
     def get_selected_indices(self):
         if isinstance(self.selector, LinearSelector):
-            return np.array([self.selector.selection,]).astype(int)
+            self.selector.get_selected_index()
+            print("getting selected inds")
+            return np.array([self.selector.get_selected_index(),]).astype(int)
         else:
             indices = self.selector.get_selected_indices()
             if isinstance(self.selector, CircleSelector):
@@ -659,9 +677,12 @@ class Plot(QtWidgets.QMdiSubWindow):
             self.setWindowTitle("Signal Plot" if is_signal else "Navigation Plot")
             self.current_indexes = [s.get_selected_indices() for s in self.selector_list]
             self.current_indexes_dense = self.get_dense_indexes()
+            print("Current Indexes", self.current_indexes_dense)
             if self.hyper_signal.signal._lazy:
+                print(f"getting current image from {self.hyper_signal.signal}")
                 current_img = self.hyper_signal.signal._get_cache_dask_chunk(self.current_indexes_dense,
                                                                              get_result=True)
+                print("Current Image", current_img.shape)
             else:
                 tuple_inds = tuple([self.current_indexes_dense[:, ind]
                                     for ind in np.arange(self.current_indexes_dense.shape[1])])
@@ -779,7 +800,7 @@ class Plot(QtWidgets.QMdiSubWindow):
             kwargs["limits"] = (self.fpl_image.data[0, 0],self.fpl_image.data[-1, 0])
             print("Line Selector Limits", kwargs["limits"])
 
-
+        print("add Selector")
         selector = Selector(type=type,
                             parent=self.fpl_image,
                             integration_order=len(self.selector_list),
@@ -790,8 +811,10 @@ class Plot(QtWidgets.QMdiSubWindow):
         self.fpl_image._plot_area.add_graphic(selector.selector, center=False)
         self.selectors.append(selector)
         if down_step:
+            print("Down Stepping")
             hypersignal = self.hyper_signal.parent_signal
             sel_list = self.selector_list + [selector,]
+            print("Create Plot")
             new_plot = Plot(hypersignal,
                         is_signal=True,
                         selector_list=sel_list,
@@ -892,7 +915,9 @@ class Plot(QtWidgets.QMdiSubWindow):
         if isinstance(result, da.Array):
             lazy_arr = result  # make non blocking
             print(f"{time.time()}:Computing Virtual Image")
+            tic = time.time()
             data = self.hyper_signal.client.compute(lazy_arr)
+            print(f"{time.time()-tic}:Virtual Image Computation submit time")
             self.data = data
         else:
             self.data = result
@@ -921,7 +946,25 @@ class Plot(QtWidgets.QMdiSubWindow):
         np.array_equal(self.current_indexes_dense, indexes)):
             self.current_indexes_dense = indexes
             if self.hyper_signal.signal._lazy:
-                current_img = self.hyper_signal.signal._get_cache_dask_chunk(indexes, get_result=get_result)
+                tic = time.time()
+                print(self.hyper_signal.signal.cached_dask_array.core_cached_blocks)
+                print(self.hyper_signal.signal.cached_dask_array.surrounding_cached_blocks)
+                print(self.hyper_signal.signal.cached_dask_array.cache_padding)
+                from hyperspy.misc.array_tools import _get_navigation_dimension_chunk_slice
+                cd = self.hyper_signal.signal.cached_dask_array
+                print(indexes, cd.array.chunks, cd.cache_padding)
+                core_block_ind, surrounding_block_indexes, ind_by_block = (
+                    _get_navigation_dimension_chunk_slice(
+                        indexes, cd.array.chunks, cd.cache_padding
+                    )
+                )
+                print(core_block_ind)
+                print(surrounding_block_indexes)
+                print(ind_by_block)
+                self.hyper_signal.signal.cached_dask_array.cache_padding = 2
+                current_img = self.hyper_signal.signal._get_cache_dask_chunk(indexes,
+                                                                             get_result=get_result)
+                print(f"{time.time()-tic}: Signal Image submit time")
             else:
                 tuple_inds = tuple([indexes[:, ind]
                                     for ind in np.arange(indexes.shape[1])])

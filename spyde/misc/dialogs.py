@@ -26,6 +26,7 @@ class DatasetSizeDialog(QtWidgets.QDialog):
         nav_shape = [a.size for a in data.axes_manager.navigation_axes]
         x, y, t = nav_shape + ([0,] * (3-len(nav_shape)))
 
+
         self.total_frames = np.prod(nav_shape)
         print(self.total_frames)
 
@@ -40,14 +41,14 @@ class DatasetSizeDialog(QtWidgets.QDialog):
 
         # Input fields for x, y, and time sizes
         self.x_input = QtWidgets.QSpinBox()
-        self.x_input.setRange(1, 10000)
+        self.x_input.setRange(1, 100000)
         self.x_input.setValue(x)
         set_x = partial(self.update_image_size, 0)
         self.x_input.valueChanged.connect(set_x)
 
         set_y = partial(self.update_image_size, 1)
         self.y_input = QtWidgets.QSpinBox()
-        self.y_input.setRange(1, 10000)
+        self.y_input.setRange(1, 100000)
         self.y_input.setValue(y)
         self.y_input.valueChanged.connect(set_y)
 
@@ -68,7 +69,12 @@ class DatasetSizeDialog(QtWidgets.QDialog):
         # Display for image size in pixels
         self.image_size_label = QtWidgets.QLabel(f"Image Size (Pixels):( {kx}, {ky})")
         layout.addWidget(self.image_size_label)
-
+        # Add a button to enable/disable the time input
+        self.toggle_time_button = QtWidgets.QPushButton("Enable Time Input")
+        self.toggle_time_button.setCheckable(True)
+        self.toggle_time_button.toggled.connect(self.toggle_time_input)
+        layout.addWidget(self.toggle_time_button)
+        self.time_input.setEnabled(False)  # Initially disable the time input
         # OK and Cancel buttons
         button_box = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Ok | QtWidgets.QDialogButtonBox.StandardButton.Cancel
@@ -81,9 +87,21 @@ class DatasetSizeDialog(QtWidgets.QDialog):
 
     def update_image_size(self, index=None):
         """Update the image size in pixels based on x and y inputs."""
-        if index ==0:
-            x_size = self.x_input.value()
-            self.y_input.setValue(self.total_frames//x_size)
+        if self.time_input.isEnabled():
+            x = self.x_input.value()
+            y = self.y_input.value()
+            t = self.time_input.value()
+            if index == 0 or index == 1:
+                t = self.total_frames // (x * y)
+                self.time_input.setValue(t)
         else:
-            y_size = self.y_input.value()
-            self.x_input.setValue(self.total_frames//y_size)
+            if index ==0:
+                x_size = self.x_input.value()
+                self.y_input.setValue(self.total_frames//x_size)
+            else:
+                y_size = self.y_input.value()
+                self.x_input.setValue(self.total_frames//y_size)
+
+    def toggle_time_input(self, checked):
+        """Enable or disable the time input box."""
+        self.time_input.setEnabled(checked)

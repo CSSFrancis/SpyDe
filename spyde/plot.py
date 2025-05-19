@@ -64,7 +64,9 @@ class Plot(CustomSubWindow):
         self.current_indexes_dense = []
 
         qwidget = self.fpl_fig.show()
-        self.setWidget(qwidget)
+        self.layout().addWidget(qwidget)
+        qwidget.setContentsMargins(0, 0, 0, 0)
+        #self.setWidget(qwidget)
         self.plot_widget = qwidget
 
         if key_navigator:  # first initialization get to root

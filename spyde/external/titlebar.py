@@ -16,6 +16,8 @@ class CustomSubWindow(QtWidgets.QMdiSubWindow):
 
         self.title_bar = QtWidgets.QWidget(self)
         self.title_bar.setFixedHeight(30)
+        self.title_bar.setMinimumHeight(30)
+        self.title_bar.setMinimumWidth(200)
         self.title_bar.setStyleSheet(load_stylesheet())
         self.title_bar_layout = QtWidgets.QHBoxLayout(self.title_bar)
         self.title_bar_layout.setContentsMargins(0, 0, 0, 0)
@@ -64,7 +66,6 @@ class CustomSubWindow(QtWidgets.QMdiSubWindow):
         self._resizing_bottom = False
         self._resizing_left = False
         self._resizing_right = False
-        self.setMinimumHeight(30)
 
     def eventFilter(self, obj, event):
         if event.type() == QtCore.QEvent.Type.MouseMove:
@@ -120,9 +121,9 @@ class CustomSubWindow(QtWidgets.QMdiSubWindow):
             self.setCursor(QCursor(Qt.CursorShape.SizeFDiagCursor))  # Top-left corner
         elif pos.x() > rect.width() - margins and pos.y() < margins:
             self.setCursor(QCursor(Qt.CursorShape.SizeBDiagCursor))  # Top-right corner
-        elif pos.x() < margins and pos.y() > rect.height() - margins:
+        elif pos.x() < margins and pos.y() > rect.height() - margins-30:
             self.setCursor(QCursor(Qt.CursorShape.SizeBDiagCursor))  # Bottom-left corner
-        elif pos.x() > rect.width() - margins and pos.y() > rect.height() - margins:
+        elif pos.x() > rect.width() - margins and pos.y() > rect.height() - margins - 30:
             self.setCursor(QCursor(Qt.CursorShape.SizeFDiagCursor))  # Bottom-right corner
         elif pos.x() < margins:
             self.setCursor(QCursor(Qt.CursorShape.SizeHorCursor))  # Left edge
@@ -130,26 +131,35 @@ class CustomSubWindow(QtWidgets.QMdiSubWindow):
             self.setCursor(QCursor(Qt.CursorShape.SizeHorCursor))  # Right edge
         elif pos.y() < margins:
             self.setCursor(QCursor(Qt.CursorShape.SizeVerCursor))  # Top edge
-        elif pos.y() > rect.height() - margins:
+        elif pos.y() > rect.height() - margins - 30:
             self.setCursor(QCursor(Qt.CursorShape.SizeVerCursor))  # Bottom edge
         else:
             self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))  # Default cursor
-
-        # Handle resizing
-        pos_int = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
-        if self._resizing_top:
-            self.resize(self.width(), self.height() - (pos_int.y() - self._resize_start.y()))
-            self.move(self.x(), self.y() + (pos_int.y() - self._resize_start.y()))
-        if self._resizing_bottom:
-            self.resize(self.width(), self.height() - (pos_int.y() - self._resize_start.y()))
-        if self._resizing_left:
-            self.resize(self.width() - (pos_int.x() - self._resize_start.x()), self.height())
-            self.move(self.x() + (pos_int.x() - self._resize_start.x()), self.y())
-        if self._resizing_right:
-            print(pos_int.x() - self._resize_start.x())
-            self.resize(self.width() + (pos_int.x() - self._resize_start.x()), self.height())
-
         if self.resizing:
+            # Handle resizing
+            pos_int = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            new_width = self.width()
+            new_height = self.height()
+            new_x = self.x()
+            new_y = self.y()
+            if self._resizing_top:
+                new_height = self.height() - (pos_int.y() - self._resize_start.y())
+                new_y = self.y() + (pos_int.y() - self._resize_start.y())
+            if self._resizing_bottom:
+                new_height = self.height() + (pos_int.y() - self._resize_start.y())
+            if self._resizing_left:
+                new_width = self.width() - (pos_int.x() - self._resize_start.x())
+                new_x = self.x() + (pos_int.x() - self._resize_start.x())
+            if self._resizing_right:
+                new_width = self.width() + (pos_int.x() - self._resize_start.x())
+
+            if new_height < 60:
+                new_height = 60
+            if new_width < 100:
+                new_width = 100
+            self.resize(new_width, new_height)
+            self.move(new_x, new_y)
+
             self._resize_start = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
 
     def mousePressEvent(self, event):
@@ -164,10 +174,10 @@ class CustomSubWindow(QtWidgets.QMdiSubWindow):
             elif pos.x() > rect.width() - margins and pos.y() < margins:
                 self._resizing_top = True  # Top-right corner
                 self._resizing_right = True
-            elif pos.x() < margins and pos.y() > rect.height() - margins:
+            elif pos.x() < margins and pos.y() > rect.height() - margins-30:
                 self._resizing_bottom = True
                 self._resizing_left = True  # Bottom-left corner
-            elif pos.x() > rect.width() - margins and pos.y() > rect.height() - margins:
+            elif pos.x() > rect.width() - margins and pos.y() > rect.height() - margins-30:
                 self._resizing_bottom = True
                 self._resizing_right = True  # Bottom-right corner
             elif pos.x() < margins:
@@ -176,7 +186,7 @@ class CustomSubWindow(QtWidgets.QMdiSubWindow):
                 self._resizing_right = True
             elif pos.y() < margins:
                 self._resizing_top = True
-            elif pos.y() > rect.height() - margins:
+            elif pos.y() > rect.height() - margins-30:
                 self._resizing_bottom = True
 
             if self.resizing:

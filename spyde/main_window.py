@@ -6,7 +6,8 @@ from PyQt6 import QtWidgets, QtCore
 from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QSplashScreen
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtGui import QPixmap, QColor
+
 
 import sys
 import os
@@ -61,6 +62,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.mdi_area.subWindowActivated.connect(self.on_subwindow_activated)
         self.create_menu()
+        self.setMouseTracking(True)
 
         if not sys.platform == "win32":
             self.add_dask_dashboard()
@@ -205,8 +207,8 @@ class MainWindow(QtWidgets.QMainWindow):
             hyper_signal = HyperSignal(signal, main_window=self, client=self.client)
             print(hyper_signal)
             plot = Plot(hyper_signal, is_signal=False, key_navigator=True)
-            print(plot)
             plot.main_window = self
+            plot.titleColor = QColor("lightgray")
             self.add_plot(plot)
             print("Adding selector and plot")
             plot.add_selector_and_new_plot()
@@ -330,6 +332,7 @@ class MainWindow(QtWidgets.QMainWindow):
         hyper_signal = HyperSignal(s, main_window=self, client=self.client)
         plot = Plot(hyper_signal, is_signal=False, key_navigator=True)
         plot.main_window = self
+
         self.add_plot(plot)
         plot.add_selector_and_new_plot()
 
@@ -342,6 +345,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def add_plot(self, plot):
         plot.resize(self.screen_size.height() // 2, self.screen_size.height() // 2)
+
+        plot.setWindowTitle("Test")
+        plot.titleColor = QColor("green")
         self.mdi_area.addSubWindow(plot)
         plot.show()
         self.plot_subwindows.append(plot)

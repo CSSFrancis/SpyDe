@@ -9,6 +9,8 @@ from spyde.selector import Selector
 from dask.distributed import Future
 from fastplotlib.utils import quick_min_max
 from PyQt6.QtCore import Qt
+from PyQt6 import QtGui
+from external.titlebar import CustomSubWindow
 
 def fast_index_virtual(arr, indexes, method="sum", reverse=True):
     ranges = np.vstack([np.min(indexes, axis=0), np.max(indexes, axis=0)]).T
@@ -29,8 +31,7 @@ def fast_index_virtual(arr, indexes, method="sum", reverse=True):
             return arr.nanmean(axis=tuple(1,np.arange(len(mask.shape)+1, dtype=int)*-1))
 
 
-
-class Plot(QtWidgets.QMdiSubWindow):
+class Plot(CustomSubWindow):
     """
     A class to manage the plotting of hyperspy signals and images.
 
@@ -62,20 +63,9 @@ class Plot(QtWidgets.QMdiSubWindow):
         self.current_indexes = []
         self.current_indexes_dense = []
 
-        # test
-        #self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        #self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
-        #self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
-        #self.setStyleSheet("QDialog { "
-        #    "border-radius: %5px; "
-        #    "border: 5px solid palette(shadow); "
-        #    "background-color: palette(base); "
-        #    "}"
-        #)
-
-        #self.setWindowFlags(self.windowFlags() & ~QtCore.Qt.WindowType.CustomizeWindowHint)
         qwidget = self.fpl_fig.show()
         self.setWidget(qwidget)
+        self.plot_widget = qwidget
 
         if key_navigator:  # first initialization get to root
             if self.hyper_signal.nav_sig is not None:
@@ -133,6 +123,11 @@ class Plot(QtWidgets.QMdiSubWindow):
 
         self.fpl_fig[0, 0].center_graphic(self.fpl_image)
         self.fpl_image.add_event_handler(self.get_context_menu, "pointer_up")
+
+        # Recursively install event filters on all child widgets
+        for child in self.findChildren(QtWidgets.QWidget):
+            child.installEventFilter(self)
+
 
     @property
     def ndim(self):

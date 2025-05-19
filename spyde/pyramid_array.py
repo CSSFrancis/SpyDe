@@ -8,7 +8,7 @@ def bin_ndarray(ndarray, factors:Tuple[int]):
     """
     Bins a ndarray in all axes based on a list of factors.es.
     """
-    shape = ndarray.shape
+    shape = np.array(ndarray.shape)
 
     new_shape = shape/factors
     for d in new_shape:
@@ -17,7 +17,7 @@ def bin_ndarray(ndarray, factors:Tuple[int]):
 
     compression_pairs = [(d, c//d) for d,c in zip(new_shape,
                                                   ndarray.shape)]
-    flattened = [l for p in compression_pairs for l in p]
+    flattened = [int(l) for p in compression_pairs for l in p]
     ndarray = ndarray.reshape(flattened)
     for i in range(len(new_shape)):
         ndarray = ndarray.sum(-1*(i+1))
@@ -41,6 +41,8 @@ class BinnedArray:
         self.parent_array = parent_array
         if offsets is None:
             self.offsets = tuple(0 for _ in range(len(binning_factors)))
+        else:
+            self.offsets = offsets
 
     def __array__(self):
         return self.array
@@ -76,8 +78,8 @@ class BinnedArray:
 
                     stop = s.stop or self.array.shape[item.index(s)] * bf + offset
                     stop = np.floor((stop - offset) / bf).astype(int)
-                    item = slice(start, stop)
-                    items.append(item)
+                    sl2 = slice(start, stop)
+                    items.append(sl2)
                     new_binning_factors.append(bf)
                 elif isinstance(s, int):
                     if bf != 1:
@@ -108,8 +110,8 @@ class BinnedArray:
             raise TypeError("Unsupported index type for binned array.")
 
         return BinnedArray(new_array,
-                           new_binning_factors,
-                           new_offsets)
+                           tuple(new_binning_factors),
+                           tuple(new_offsets))
 
 
 class PyramidArray:
@@ -138,7 +140,7 @@ class PyramidArray:
     def __init__(self,
                  array: npt.NDArray,
                  binned_arrays: List[BinnedArray] = None,
-                ) -> None:
+                 ) -> None:
 
         self.array = array
         self.binned_arrays = binned_arrays if binned_arrays is not None else []

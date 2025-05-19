@@ -1,31 +1,27 @@
 import distributed
-import numpy as np
 import pyxem.data
-from bokeh.layouts import layout
-#from bokeh.server.tornado import psutil
-import psutil
-from hyperspy.roi import CircleROI
+import webbrowser
+
 from PyQt6 import QtWidgets, QtCore
-from PyQt6.QtGui import QAction
-#from PyQt6.QtWebEngineWidgets import QWebEngineView
-from PyQt6.QtCore import Qt, QMetaObject
+from PyQt6.QtGui import QAction, QIcon
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QSplashScreen
+from PyQt6.QtGui import QPixmap
 
 import sys
-import fastplotlib as fpl
+import os
+from functools import partial
 import hyperspy.api as hs
 import dask.array as da
 from dask.distributed import Client, Future, LocalCluster
 
-from fastplotlib import LinearSelector
-from functools import partial
-import time
-import numpy as np
-import os
 
 from spyde.camera_control import CameraControlDock
 from spyde.misc.dialogs import DatasetSizeDialog
-from spyde.selector import Selector
 from spyde.plot import Plot
+import qdarktheme
+if not sys.platform == "win32":
+    from PyQt6.QtWebEngineWidgets import QWebEngineView
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -33,8 +29,13 @@ class MainWindow(QtWidgets.QMainWindow):
     A class to manage the main window of the application.
     """
 
-    def __init__(self):
+    def __init__(self, app=None):
         super().__init__()
+        self.app = app
+        qdarktheme.setup_theme("light")
+        qdarktheme.setup_theme(corner_shape="rounded")
+        # Test if the theme is set correctly
+
         cpu_count = os.cpu_count()
         threads = (cpu_count//4) -1
         cluster = LocalCluster(n_workers=threads, threads_per_worker=4)
@@ -59,8 +60,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.plot_subwindows = []
 
         self.mdi_area.subWindowActivated.connect(self.on_subwindow_activated)
-        #self.add_dask_dashboard()
         self.create_menu()
+
+        if not sys.platform == "win32":
+            self.add_dask_dashboard()
+
 
         self.signal_tree = None
         self.selector_list = None
@@ -68,14 +72,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.add_plot_control_widget()
         self.file_dialog = None
 
-
-        self.timer  = QtCore.QTimer()
-        self.timer.setInterval(10) # Every 10ms we will check to update the plots??
+        self.timer = QtCore.QTimer()
+        self.timer.setInterval(10)  # Every 10ms we will check to update the plots??
         self.timer.timeout.connect(self.update_plots_loop)
         self.timer.start()
 
         camera_control_dock = CameraControlDock(self)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, camera_control_dock)
+        camera_control_dock.hide()
 
     def update_plots_loop(self):
         """This is a simple loop to check if the plots need to be updated. Currently, this
@@ -111,15 +115,37 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Add View Menu
         view_menu = menubar.addMenu("View")
-        toggle_dask_dashboard = QAction("Toggle Dask Dashboard", self)
-        toggle_dask_dashboard.setChecked(True)
-        toggle_dask_dashboard.triggered.connect(self.toggle_dask_dashboard_visibility)
-        view_menu.addAction(toggle_dask_dashboard)
+        if not sys.platform == "win32":
+            toggle_dask_dashboard = QAction("Toggle Dask Dashboard", self)
+            toggle_dask_dashboard.setChecked(True)
+            toggle_dask_dashboard.triggered.connect(self.toggle_dask_dashboard_visibility)
+            view_menu.addAction(toggle_dask_dashboard)
 
+        # Add a view to open the dask dashboard
+        view_dashboard_action = QAction("Open Dask Dashboard", self)
+        view_dashboard_action.triggered.connect(self.open_dask_dashboard)
+        view_menu.addAction(view_dashboard_action)
+
+        # Add a view to toggle the camera control
         toggle_camera_control = QAction("Toggle Camera Control", self)
         toggle_camera_control.setChecked(True)
         toggle_camera_control.triggered.connect(self.toggle_camera_control_visibility)
         view_menu.addAction(toggle_camera_control)
+
+        # Add Light/Dark Mode Toggle
+        toggle_theme_action = QAction("Toggle Light/Dark Mode", self)
+        toggle_theme_action.triggered.connect(self.toggle_theme)
+        view_menu.addAction(toggle_theme_action)
+
+    def open_dask_dashboard(self):
+        """
+        Open the Dask dashboard in a new window.
+        """
+        if self.client:
+            dashboard_url = self.client.dashboard_link
+            webbrowser.open(dashboard_url)
+        else:
+            QtWidgets.QMessageBox.warning(self, "Error", "Dask client is not initialized.")
 
     def toggle_dask_dashboard_visibility(self):
         """
@@ -131,6 +157,15 @@ class MainWindow(QtWidgets.QMainWindow):
                     dock.hide()
                 else:
                     dock.show()
+
+    def toggle_theme(self):
+        """
+        Toggle between light and dark mode.
+        """
+        if qdarktheme.get_themes() == "dark":
+            qdarktheme.setup_theme("light")
+        else:
+            qdarktheme.setup_theme("dark")
 
     def toggle_camera_control_visibility(self):
         """
@@ -185,7 +220,6 @@ class MainWindow(QtWidgets.QMainWindow):
             file_paths = self.file_dialog.selectedFiles()
             if file_paths:
                 self._create_signals(file_paths)
-
 
     def create_data(self):
         """
@@ -360,6 +394,7 @@ class MainWindow(QtWidgets.QMainWindow):
         dock_widget.setFeatures(QtWidgets.QDockWidget.DockWidgetFeature.DockWidgetFloatable)
         self.addDockWidget(QtCore.Qt.DockWidgetArea.BottomDockWidgetArea, dock_widget)
         dock_widget.setBaseSize(self.width() // 6, self.height() // 6)
+        dock_widget.hide()
 
     def close(self):
         self.client.close()
@@ -504,17 +539,28 @@ class HyperSignal:
 if __name__ == '__main__':
     app = QtWidgets.QApplication(sys.argv)
     app.setApplicationName("SpyDe")  # Set the application name
+    # Create and show the splash screen
+    logo_path = "SpydeDark.png"  # Replace with the actual path to your logo
+    pixmap = QPixmap(logo_path).scaled(300, 300,
+                                       Qt.AspectRatioMode.KeepAspectRatio,
+                                       Qt.TransformationMode.SmoothTransformation)
 
-    main_window = MainWindow()
+    splash = QSplashScreen(pixmap,
+                           Qt.WindowType.FramelessWindowHint)
+    splash.show()
+    splash.raise_()  # Bring the splash screen to the front
+    app.processEvents()
+    main_window = MainWindow(app=app)
 
     main_window.setWindowTitle("SpyDe")  # Set the window title
-    #window = QtWidgets.QMdiSubWindow()
-    #main_window.mdi_area.addSubWindow(window)
-    #f = fpl.Figure()
-    #window.setWidget(f.show())
 
-    #f[0,0].add_image(np.random.rand(512, 512), name="test")
-
-
+    if sys.platform == "darwin":
+        logo_path = "Spyde.icns"
+    else:
+        logo_path = "SpydeDark.png"  # Replace with the actual path to your logo
+    main_window.setWindowIcon(QIcon(logo_path))
     main_window.show()
+    splash.finish(main_window)  # Close the splash screen when the main window is shown
+
     app.exec()
+

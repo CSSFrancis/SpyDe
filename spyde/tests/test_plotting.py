@@ -85,4 +85,3 @@ class TestMainWindow:
         window.update_plot()
         # Check if the plot was updated correctly
         assert window.plot_subwindows[0].isVisible()
-

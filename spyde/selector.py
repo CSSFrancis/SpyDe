@@ -26,7 +26,7 @@ class Selector:
         self.is_integrating = False
 
         self.update_timer = QtCore.QTimer()
-        self.update_timer.setInterval(50)  # Every 50ms we will check to update the plots??
+        self.update_timer.setInterval(20)  # Every 20ms we will check to update the plots??
         self.update_timer.setSingleShot(True)
         self.update_timer.timeout.connect(self.delayed_update_data)
 

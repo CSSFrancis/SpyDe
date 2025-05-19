@@ -6,7 +6,9 @@ import fastplotlib as fpl
 import numpy as np
 import dask.array as da
 from spyde.selector import Selector
-from dask.distributed import Client, Future, LocalCluster
+from dask.distributed import Future
+from fastplotlib.utils import quick_min_max
+from PyQt6.QtCore import Qt
 
 def fast_index_virtual(arr, indexes, method="sum", reverse=True):
     ranges = np.vstack([np.min(indexes, axis=0), np.max(indexes, axis=0)]).T
@@ -60,7 +62,18 @@ class Plot(QtWidgets.QMdiSubWindow):
         self.current_indexes = []
         self.current_indexes_dense = []
 
-        self.setWindowFlags(self.windowFlags() & ~QtCore.Qt.WindowType.CustomizeWindowHint)
+        # test
+        #self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        #self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+        #self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
+        #self.setStyleSheet("QDialog { "
+        #    "border-radius: %5px; "
+        #    "border: 5px solid palette(shadow); "
+        #    "background-color: palette(base); "
+        #    "}"
+        #)
+
+        #self.setWindowFlags(self.windowFlags() & ~QtCore.Qt.WindowType.CustomizeWindowHint)
         qwidget = self.fpl_fig.show()
         self.setWidget(qwidget)
 
